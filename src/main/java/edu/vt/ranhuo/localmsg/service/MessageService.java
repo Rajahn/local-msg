@@ -23,9 +23,9 @@ public interface MessageService {
 
     /**
      * 保存消息到本地表
-     * @param conn 数据库连接
+     *
      * @param message 要保存的消息
      * @throws Exception 保存失败时抛出异常
      */
-    void saveMessage(Connection conn, Message message) throws Exception;
+    void saveMessage(Message message) throws Exception;
 }

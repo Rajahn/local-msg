@@ -1,33 +1,24 @@
+// DataSourceFactory.java
 package edu.vt.ranhuo.localmsg.config;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import javax.sql.DataSource;
-import java.util.Iterator;
 import java.util.Properties;
-import java.util.ServiceLoader;
 
-/**
- * 数据源工厂，支持SPI机制
- */
 public class DataSourceFactory {
-    private static final Logger logger = LoggerFactory.getLogger(DataSourceFactory.class);
-
-    private DataSourceFactory() {}
-
     public static DataSource createDataSource(Properties properties) {
-        // 通过SPI加载自定义数据源提供者
-        ServiceLoader<DataSourceProvider> loader = ServiceLoader.load(DataSourceProvider.class);
-        Iterator<DataSourceProvider> it = loader.iterator();
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(properties.getProperty("jdbc.url"));
+        config.setUsername(properties.getProperty("jdbc.username"));
+        config.setPassword(properties.getProperty("jdbc.password"));
 
-        if (it.hasNext()) {
-            DataSourceProvider provider = it.next();
-            logger.info("Using custom DataSourceProvider: {}", provider.getClass().getName());
-            return provider.createDataSource(properties);
-        }
+        config.setMinimumIdle(2);
+        config.setMaximumPoolSize(5);
+        config.setConnectionTimeout(5000);
+        config.setValidationTimeout(3000);
+        config.setPoolName("LocalMessagePool");
 
-        // 没有自定义实现时使用默认HikariCP数据源
-        logger.info("No custom DataSourceProvider found, using default HikariCP implementation");
-        return new HikariDataSourceProvider().createDataSource(properties);
+        return new HikariDataSource(config);
     }
 }

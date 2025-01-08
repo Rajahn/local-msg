@@ -41,7 +41,7 @@ public class DefaultMessageService implements MessageService {
 
     public void executeWithTransaction(Connection connection, TransactionCallback<Message> business) throws Exception {
         Message message = business.doInTransaction(connection);
-        saveMessage(connection, message);
+        saveMessage(message);
     }
 
     @Override
@@ -59,23 +59,24 @@ public class DefaultMessageService implements MessageService {
 
 
     @Override
-    public void saveMessage(Connection conn, Message message) throws Exception {
+    public void saveMessage(Message message) throws Exception {
         LocalMessage localMessage = createLocalMessage(message);
-        messageDao.save(conn, tableName, localMessage);
 
-        // 尝试立即发送消息
-        try {
-            sendMessage(message);
-            // 更新状态为发送成功
-            messageDao.updateStatus(conn, tableName, localMessage.getId(),
-                    1, MessageStatus.SUCCESS.getValue());
-        } catch (Exception e) {
-            logger.warn("Failed to send message immediately, will retry later: topic={}, key={}",
-                    message.getTopic(), message.getKey());
-            // 更新发送次数
-            messageDao.updateStatus(conn, tableName, localMessage.getId(),
-                    1, MessageStatus.INIT.getValue());
-        }
+        transactionExecutor.execute(null, conn -> {
+            messageDao.save(conn, tableName, localMessage);
+            try {
+                sendMessage(message);
+                messageDao.updateStatus(conn, tableName, localMessage.getId(),
+                        1, MessageStatus.SUCCESS.getValue());
+            } catch (Exception e) {
+                messageDao.updateStatus(conn, tableName, localMessage.getId(),
+                        1, MessageStatus.INIT.getValue());
+                logger.warn("Failed to send message immediately, will retry later: topic={}, key={}",
+                        message.getTopic(), message.getKey());
+            }
+            return null;
+        });
+
     }
 
     public void handleMessageRetry(LocalMessage localMessage) throws Exception {

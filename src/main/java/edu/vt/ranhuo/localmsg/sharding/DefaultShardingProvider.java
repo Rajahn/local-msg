@@ -1,23 +1,31 @@
 package edu.vt.ranhuo.localmsg.sharding;
 
-import edu.vt.ranhuo.localmsg.config.Configuration;
-import edu.vt.ranhuo.localmsg.config.DataSourceFactory;
-import edu.vt.ranhuo.localmsg.sharding.rules.ShardingRule;
-import edu.vt.ranhuo.localmsg.sharding.rules.SimpleShardingRule;
-import edu.vt.ranhuo.localmsg.sharding.rules.SingleDataSourceRule;
-import edu.vt.ranhuo.localmsg.sharding.rules.SingleTableRule;
+import edu.vt.ranhuo.localmsg.core.Message;
 
-/**
- * 默认的分库规则提供者，使用单库模式
- */
+import javax.sql.DataSource;
+import java.util.Collections;
+import java.util.List;
+
 public class DefaultShardingProvider implements ShardingProvider {
+    private final DataSource defaultDataSource;
+
+    public DefaultShardingProvider(DataSource dataSource) {
+        this.defaultDataSource = dataSource;
+    }
+
     @Override
-    public ShardingRule createShardingRule(Configuration configuration) {
-        return new SimpleShardingRule(
-                new SingleDataSourceRule(
-                        DataSourceFactory.createDataSource(configuration.getDataSourceProperties())
-                ),
-                new SingleTableRule()
-        );
+    public Object getShardingValue(Message message) {
+        return null;  // 单库模式不需要分片值
+    }
+
+
+    @Override
+    public List<DataSource> getMessageDataSources() {
+        return Collections.singletonList(defaultDataSource);
+    }
+
+    @Override
+    public DataSource getMessageDataSource(Object shardingValue) {
+        return defaultDataSource;
     }
 }
