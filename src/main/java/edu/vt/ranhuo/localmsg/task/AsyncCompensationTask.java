@@ -4,6 +4,7 @@ import edu.vt.ranhuo.localmsg.core.LocalMessage;
 import edu.vt.ranhuo.localmsg.core.MessageStatus;
 import edu.vt.ranhuo.localmsg.dao.MessageDao;
 import edu.vt.ranhuo.localmsg.dao.Query;
+import edu.vt.ranhuo.localmsg.lock.DistributedLock;
 import edu.vt.ranhuo.localmsg.service.DefaultMessageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +22,9 @@ public class AsyncCompensationTask {
     private final ExecutorService taskExecutor;
     private final int batchSize;
     private final AtomicBoolean running = new AtomicBoolean(false);
+
+    private static final String COMPENSATE_LOCK_KEY = "compensate-task";
+    private static final long LOCK_EXPIRE_SECONDS = 90;
 
     public AsyncCompensationTask(DefaultMessageService messageService,
                                  MessageDao messageDao,
@@ -82,29 +86,62 @@ public class AsyncCompensationTask {
             return;
         }
 
-        try {
-            List<LocalMessage> messages = findPendingMessages();
-            if (messages.isEmpty()) {
+        try (DistributedLock lock = new DistributedLock(
+                COMPENSATE_LOCK_KEY,
+                LOCK_EXPIRE_SECONDS,
+                messageService.getTransactionExecutor(),
+                messageDao,
+                messageService.getTableName())) {
+
+            // 尝试获取锁, 没有获取锁的实例直接返回, 等待下一次被调度
+            if (!lock.tryLock()) {
+                logger.debug("Another instance is running compensation task");
                 return;
             }
 
-            logger.info("Found {} messages to compensate", messages.size());
+            // 持续处理，直到没有消息或遇到失败
+            while (running.get()) {
+                List<LocalMessage> messages = findPendingMessages();
+                if (messages.isEmpty()) {
+                    break;
+                }
 
-            CompletableFuture<?>[] futures = messages.stream()
-                    .map(msg -> CompletableFuture.runAsync(() -> {
-                        try {
-                            messageService.handleMessageRetry(msg);
-                        } catch (Exception e) {
-                            logger.error("Failed to handle message retry: id={}", msg.getId(), e);
-                        }
-                    }, taskExecutor))
-                    .toArray(CompletableFuture[]::new);
+                logger.info("Found {} messages to compensate", messages.size());
 
-            CompletableFuture.allOf(futures).join();
+                boolean hasFailure = processBatch(messages);
+                if (hasFailure) {
+                    // 如果处理失败，退出循环，释放锁
+                    logger.info("Encountered failures, releasing lock");
+                    break;
+                }
+            }
 
         } catch (Exception e) {
             logger.error("Failed to execute compensation task", e);
         }
+    }
+
+    private boolean processBatch(List<LocalMessage> messages) {
+        AtomicBoolean hasFailure = new AtomicBoolean(false);
+        CompletableFuture<?>[] futures = messages.stream()
+                .map(msg -> CompletableFuture.runAsync(() -> {
+                    try {
+                        messageService.handleMessageRetry(msg);
+                    } catch (Exception e) {
+                        hasFailure.set(true);
+                        logger.error("Failed to handle message retry: id={}", msg.getId(), e);
+                    }
+                }, taskExecutor))
+                .toArray(CompletableFuture[]::new);
+
+        try {
+            CompletableFuture.allOf(futures).join();
+        } catch (Exception e) {
+            hasFailure.set(true);
+            logger.error("Failed to process message batch", e);
+        }
+
+        return hasFailure.get();
     }
 
     private List<LocalMessage> findPendingMessages() throws Exception {

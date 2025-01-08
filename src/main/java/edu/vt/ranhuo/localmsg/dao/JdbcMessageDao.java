@@ -114,4 +114,46 @@ public class JdbcMessageDao implements MessageDao {
                 .createTime(rs.getLong("create_time"))
                 .build();
     }
+
+    @Override
+    public LocalMessage findByKey(Connection conn, String table, String key) throws Exception {
+        String sql = String.format("SELECT * FROM %s WHERE `key` = ?", table);
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, key);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return LocalMessage.builder()
+                            .id(rs.getLong("id"))
+                            .key(rs.getString("key"))
+                            .data(rs.getBytes("data"))
+                            .sendTimes(rs.getInt("send_times"))
+                            .status(MessageStatus.fromValue(rs.getInt("status")))
+                            .updateTime(rs.getLong("update_time"))
+                            .createTime(rs.getLong("create_time"))
+                            .build();
+                }
+                return null;
+            }
+        }
+    }
+
+
+    @Override
+    public int updateLock(Connection conn, String table, String key,
+                          byte[] value, MessageStatus status, long expireTime) throws Exception {
+        String sql = String.format(
+                "UPDATE %s SET `data` = ?, status = ?, update_time = ? " +
+                        "WHERE `key` = ? AND (status != ? OR update_time < ?)",
+                table);
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            int i = 1;
+            stmt.setBytes(i++, value);
+            stmt.setInt(i++, status.getValue());
+            stmt.setLong(i++, expireTime);
+            stmt.setString(i++, key);
+            stmt.setInt(i++, MessageStatus.LOCK_HOLDING.getValue());
+            stmt.setLong(i++, System.currentTimeMillis());
+            return stmt.executeUpdate();
+        }
+    }
 }
