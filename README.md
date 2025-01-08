@@ -14,7 +14,29 @@
 可配置的重试策略
 基于SPI的扩展机制
 
-## 多数据源配置
+
+## 示例
+### 自定义业务分库规则
+```
+public class CustomShardingProvider extends AbstractShardingProvider {
+    @Override
+    public Object getShardingValue(Message message) {
+        // 实现分片逻辑
+    }
+
+    @Override
+    protected String getConfigFileName() {
+        // 自定义配置文件名
+        return "custom-datasource.properties";
+    }
+
+    @Override
+    protected void customizePoolConfig(HikariConfig config, int index) {
+        // 自定义连接池配置
+    }
+}
+```
+### 多数据源配置
 ```
 datasource.count=2
 
@@ -26,7 +48,6 @@ datasource.1.url=jdbc:mysql://localhost:3306/local_msg_db_1
 datasource.1.username=root
 datasource.1.password=root
 ```
-
 ```
 public class Example {
     public void businessOperation() {
